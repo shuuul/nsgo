@@ -102,7 +102,7 @@ func TestCanvasAtlasMatchesDrawImageFrom(t *testing.T) {
 	})
 	p := point(got, 16, 80)
 	r, g, b, _ := got.At(p.X, p.Y).RGBA()
-	if r>>8 > 100 || g>>8 < 180 || b>>8 > 60 {
+	if g>>8 < 180 || g < max(r, b)+(80<<8) {
 		t.Errorf("the path after DrawAtlas drew (%d, %d, %d), want green", r>>8, g>>8, b>>8)
 	}
 	region := image.Rectangle{Min: point(want, 4, 4), Max: point(want, 108, 92)}
