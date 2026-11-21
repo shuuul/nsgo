@@ -135,6 +135,8 @@ func writeDrawing(w *writer, d *driver.Drawing) {
 			w.u16(uint16(op.Font.Weight))
 			w.flags(op.Font.Italic)
 			w.byte(byte(op.Font.Variant))
+		case driver.DrawAtlas:
+			writeAtlas(w, op)
 		case driver.DrawImage:
 			var key string
 			var density float32 = 1
@@ -171,6 +173,25 @@ func writeDrawing(w *writer, d *driver.Drawing) {
 		w.str(n.Label)
 		w.str(n.TestID)
 		w.flags(n.Selected)
+	}
+}
+
+// writeAtlas supplies one image key followed by the sprite records.
+func writeAtlas(w *writer, op *driver.DrawOp) {
+	if op.Image == nil || op.Atlas == nil {
+		w.str("")
+		w.u32(0)
+		return
+	}
+	w.str(op.Image.Key())
+	w.u32(uint32(len(*op.Atlas)))
+	for _, sprite := range *op.Atlas {
+		b, t := sprite.Rect, sprite.Transform
+		w.points(b.Origin.X)
+		w.points(b.Origin.Y)
+		w.points(b.Size.Width)
+		w.points(b.Size.Height)
+		w.floats(t.SCos, t.SSin, t.TX, t.TY, sprite.Alpha)
 	}
 }
 

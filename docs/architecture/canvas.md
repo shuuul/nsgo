@@ -12,11 +12,13 @@
 - `FillPath`, `StrokePath` and `ClipPath` use a `Path` without touching the current path; `FillEvenOdd` and `ClipEvenOdd` take the even-odd rule.
 - Paints: colors, and `CanvasLinear`, `CanvasRadial` and `CanvasConic` gradients.
 - Text: `FillText` and `StrokeText` in a `Font`.
-- Images: `DrawImage` at the natural size, `DrawImageIn` into a rectangle and `DrawImageFrom` from a part of the image.
+- Images: `DrawImage` at the natural size, `DrawImageIn` into a rectangle `DrawImageFrom` from a part of the image, and `DrawAtlas` for ordered tiles of one image.
 
 A canvas has no size of its own unless `Em` gives it one in ems of the font size it inherits, scaled by the user's text size as text is, as `base/formula`'s formulas size themselves: in a text's attachment its baseline, `Em.Descent` ems above its bottom, sits on the line's ([text](text.md)). `EmFunc` and `LabelFunc` follow what they read, laying it out again and naming it anew.
 
 The recorder resolves what needs the engine, so players stay plain: text alignment and baselines become an offset from the text's metrics, and an `ArcTo` becomes an arc from the current point. A `FillPath`, `StrokePath` or `ClipPath` (`FillRect` and `StrokeRect` among them) begins a path for its `Path` and another after it; the current path it leaves is recorded again, under the transforms it was built in and inside a `Save` and `Restore`, before the next op that builds on it or uses it (`DrawKind.UsesPath`). A run of `FillRect`s after a long line, as a chart's bars after its line, records each rectangle alone. Players keep only a transform, a clip and the paint state.
+
+`DrawAtlas` records source bounds in image points, one scaled rotation and translation per tile, and optional opacity factors on one operation. It copies its inputs and retains one image source for access checks, density selection and loading. The tile's local origin is its top-left corner. A sprite with transform `t` maps local `(x, y)` to `(t.SCos*x - t.SSin*y + t.TX, t.SSin*x + t.SCos*y + t.TY)`. Each draw retains the clip, composite and shadow, multiplies the saved alpha by its opacity, and leaves the current path intact.
 
 ## Queries
 
@@ -82,6 +84,8 @@ Pixels draw at once on Apple, Windows and Linux, with a separate cache of up to 
 | Android | `android.graphics.Canvas` | `BlendMode`, or Porter-Duff modes before Android 10, in a layer for operators that clear outside the shape | The paint's shadow layer | `SweepGradient` | The paint's stroke style |
 
 A call into the platform can cost more than the op it plays draws ([performance](performance.md#keeping-frames-cheap)). Apple's player calls the Core Graphics functions of pointers and integers through `purego.SyscallN` (`registerSyscall`), adds a `MoveTo` and the `LineTo`s after it in one `CGContextAddLines`, makes each color once a drawing, tracks whether the path is empty and asks Core Graphics only after shapes that may add nothing, and copies the path that a fill, stroke or clip keeps only when a later op uses it.
+
+An atlas resolves its image once. Apple caches cropped tiles within the source's lifetime and shares one Core Graphics coordinate flip across axis-aligned sprites. Windows uses a Direct2D sprite batch for axis-aligned, pixel-aligned placements that fit its sampling rules. Linux changes the source matrix of a shared Cairo pattern. Android can draw compatible placements as a textured mesh, with bitmap draws for placements that need the ordinary player's edge and compositing rules. The web and mini programs pass one packed sprite list to their canvas player. HarmonyOS expands the sprite list into the committed ArkTS host's image operations.
 
 `internal/platform/canvastest` holds sample drawings, one for each group of features, and the pixels they must produce; the Apple, Windows and Linux players check them in their tests. Cache tests on Apple, Windows, Linux and Android exercise 1,000 distinct sources, eviction, reloading and loads under way; on Apple and Linux, canvases drawn in passes of their own load 88 slow images together; Android also runs its real pipe, decoder and player on the emulator. The web is checked by screenshots of the gallery's Canvas page.
 

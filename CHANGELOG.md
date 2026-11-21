@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Add `Drawing.DrawAtlas` to draw many transformed tiles from one source image in a single canvas operation (#1103 by @houko).
 - Add `apple.multiple_scenes`, which writes `UIApplicationSupportsMultipleScenes`, and show each further scene an iPad connects for it, as the user opens another window of the app, in a window of its own: a tree of the app's one engine showing the main view, with its own size, safe area, status bar and orientations, kept while UIKit disconnects the scene and ended as the system discards it (#49 by @houko).
 - Keep an iOS app's engine, state and screens when UIKit disconnects its scene and connects a new one while the process lives, showing the running app in the new window rather than starting a second engine over it (#1030 by @houko).
 - Let a `core.Shader`'s `Images` take an `ImageSource` with `Pixels`, copied once per `Version` and written into a texture each backend keeps, with no upload while the version stays, so a shader can filter a frame the app writes (#1052 by @houko).

@@ -35,6 +35,8 @@ d.SetFillGradient(core.CanvasLinear(0, 0, float32(size.Width), 0,
 
 `MeasureText`, `TextMetrics` and `SetTextAlign` lay text out on the platform's text engine, so labels use the same fonts as the rest of the app. `DrawImage`, `DrawImageIn` and `DrawImageFrom` draw pictures, and `OnPress` can test the last drawing with `IsPointInPath` and `IsPointInStroke`.
 
+Use `d.DrawAtlas(source, rects, xforms, alphas)` to draw many sprites from one image in order. Each `core.Bounds` selects a tile in the image's own points. The matching `core.RSXform` maps the tile's top-left corner to `TX, TY`, with `SCos` and `SSin` set to the scale times the cosine and sine of the rotation. For example, `core.RSXform{SCos: 0.5, TX: 40, TY: 20}` draws a 32-point tile at half size at (40, 20). Pass `nil` for full sprite opacity, or supply factors that multiply the current drawing alpha.
+
 `Drawing.Node` names a part of a drawing, such as a chart's bar or a map's region, with bounds, a role, a label and a selected state. Assistive technology reads those parts as the canvas's children, and tests find them by label, text or test ID; a press on one is a press at its center.
 
 ```go

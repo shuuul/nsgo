@@ -212,6 +212,7 @@ type canvasState struct {
 	fill, stroke         driver.Color
 	fillGrad, strokeGrad *driver.CanvasGradient
 	shadow               bool
+	alpha                float64
 	composite            driver.CompositeOp
 	// dash and phase are the dash pattern, which an offset sets again.
 	dash  []float64
@@ -249,7 +250,7 @@ func PlayOver(ctx uintptr, ops []driver.DrawOp, split driver.CanvasSplit, host C
 
 func newPlayer(ctx uintptr, ops []driver.DrawOp, split driver.CanvasSplit, host CanvasHost) *player {
 	return &player{ctx: ctx, ops: ops, split: split, base: cgContextGetCTM(ctx), host: host,
-		stack: []canvasState{{fill: 0x000000ff, stroke: 0x000000ff}}}
+		stack: []canvasState{{fill: 0x000000ff, stroke: 0x000000ff, alpha: 1}}}
 }
 
 func (p *player) run() {
@@ -510,7 +511,8 @@ func (p *player) play(at int) {
 	case driver.DrawLineDashOffset:
 		p.setDash(nil, f(op.W))
 	case driver.DrawAlpha:
-		cgContextSetAlpha(ctx, f(op.A))
+		p.st().alpha = min(max(f(op.A), 0), 1)
+		cgContextSetAlpha(ctx, p.st().alpha)
 	case driver.DrawComposite:
 		if int(op.Composite) < len(blendModes) {
 			p.st().composite = op.Composite
@@ -525,6 +527,8 @@ func (p *player) play(at int) {
 		p.text(op)
 	case driver.DrawImage:
 		p.image(op)
+	case driver.DrawAtlas:
+		p.atlas(op)
 	}
 }
 
@@ -787,6 +791,8 @@ type loadedImage struct {
 	points        driver.Size
 	failed        bool
 	waiting       map[any]func()
+	atlasCrops    map[driver.Bounds]uintptr
+	atlasPixels   int
 	used          uint64
 	cancel        context.CancelFunc
 }
@@ -840,8 +846,7 @@ func canvasImage(src driver.ImageSource, host CanvasHost) *loadedImage {
 			// Every image loaded was drawn by the pass under way, or none has loaded: evicting one would load it again at the next pass, forever.
 			break
 		}
-		Release(canvasImages[oldest].image)
-		canvasImages[oldest].image = 0
+		canvasImages[oldest].release()
 		delete(canvasImages, oldest)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -917,7 +922,7 @@ func canvasFrame(src driver.ImageSource) *loadedImage {
 	}
 	for len(canvasFrames) > 0 && (len(canvasFrames) >= maxCanvasFrames || canvasFramePixels+pixelCount(src.Pixels) > maxCanvasFramePixels) {
 		canvasFramePixels -= pixelCount(canvasFrames[0].pixels)
-		Release(canvasFrames[0].image.image)
+		canvasFrames[0].image.release()
 		canvasFrames = slices.Delete(canvasFrames, 0, 1)
 	}
 	canvasFramePixels += pixelCount(src.Pixels)

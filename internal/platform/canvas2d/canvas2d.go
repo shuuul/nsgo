@@ -169,6 +169,8 @@ func (p *Player) Play(op *driver.DrawOp) {
 		ctx.Call("clearRect", f(op.X), f(op.Y), f(op.W), f(op.H))
 	case driver.DrawImage:
 		p.image(op)
+	case driver.DrawAtlas:
+		p.atlas(op)
 	}
 }
 
