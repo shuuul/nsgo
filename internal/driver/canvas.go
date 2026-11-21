@@ -120,6 +120,8 @@ const (
 	// them, so players skip these.
 	DrawTextAlign
 	DrawTextBaseline
+	// DrawAtlas draws a list of sprites from Image, in Atlas's order.
+	DrawAtlas
 )
 
 // UsesPath reports whether an op of kind k builds on the current path or
@@ -146,6 +148,7 @@ type DrawOp struct {
 	Composite CompositeOp
 	Dash      *LineDash
 	Image     *ImageSource
+	Atlas     *AtlasSprites
 	// TextAlign and TextBaseline are what a text op was placed with.
 	TextAlign    TextAlign
 	TextBaseline TextBaseline

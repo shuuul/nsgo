@@ -69,6 +69,8 @@ type (
 	DrawKind = driver.DrawKind
 	// DrawOp is one operation; Kind says which fields it uses.
 	DrawOp = driver.DrawOp
+	// RSXform scales, rotates and translates one DrawAtlas sprite.
+	RSXform = driver.RSXform
 	// Drawing is a recording of 2D drawing operations, modeled on the web's
 	// CanvasRenderingContext2D: a current path, fill and stroke settings, and a
 	// transform, saved and restored as a stack.
@@ -624,6 +626,7 @@ const (
 	DrawImage          = driver.DrawImage
 	DrawTextAlign      = driver.DrawTextAlign
 	DrawTextBaseline   = driver.DrawTextBaseline
+	DrawAtlas          = driver.DrawAtlas
 )
 
 const (
