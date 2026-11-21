@@ -4,6 +4,7 @@
 
 - Let `richeditor.View.NodeViews` draw inline leaves in the text, where a press selects the node and an edit can replace it whole.
 - Keep an image with its surrounding text when the rich editor's schema defines `inlineImage`, and keep the image's title and link when writing Markdown.
+- Report what each text of a selection area has selected in `TextSelection.Ranges`: the text's `Ref` and the UTF-16 offsets of its content, so an app can tell a selection of repeated text apart from the same words elsewhere, on macOS, Linux and Windows and in `nsgotest`, where `App.SelectTextRange` injects a precise selection by offsets.
 - Add `apple.multiple_scenes`, which writes `UIApplicationSupportsMultipleScenes`, and show each further scene an iPad connects for it, as the user opens another window of the app, in a window of its own: a tree of the app's one engine showing the main view, with its own size, safe area, status bar and orientations, kept while UIKit disconnects the scene and ended as the system discards it (#49 by @houko).
 - Keep an iOS app's engine, state and screens when UIKit disconnects its scene and connects a new one while the process lives, showing the running app in the new window rather than starting a second engine over it (#1030 by @houko).
 - Let a `core.Shader`'s `Images` take an `ImageSource` with `Pixels`, copied once per `Version` and written into a texture each backend keeps, with no upload while the version stays, so a shader can filter a frame the app writes (#1052 by @houko).
