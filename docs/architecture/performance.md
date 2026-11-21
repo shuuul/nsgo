@@ -126,7 +126,7 @@ The gallery records 1,000 or 5,000 moving sprites in one `Canvas` on every anima
 go tool nsgo test -target macos -fps -env NSGO_GALLERY_PERF=1 -run '^TestPerfCanvasSprites' ./examples/gallery
 ```
 
-Use `windows`, `linux`, `android` or `web` for the other runners. The default is five seconds per load after two seconds of warm-up at 1200 × 800 points, with the device viewport on Android. The markers delimit the uninterrupted run. After it, the test holds and captures separately requested frames, identifying each by its drawn version. The reported callback-to-capture age includes settling, readback and PNG transport. It is an upper bound for the test surface and physical presentation still needs a display trace.
+Use `windows`, `linux`, `android` or `web` for the other runners. The default is five seconds per load after two seconds of warm-up at 1200 × 800 points, with the device viewport on Android. The Windows CI readings use three seconds per load. The markers delimit the uninterrupted run. After it, the test holds and captures separately requested frames, identifying each by its drawn version. The reported callback-to-capture age includes settling, readback and PNG transport. It is an upper bound for the test surface and physical presentation still needs a display trace.
 
 Readings from 2026-11-21. Pairs are 1,000 / 5,000 sprites. Rates count the app's frame callbacks. Main and core times are in milliseconds.
 
@@ -136,11 +136,11 @@ Readings from 2026-11-21. Pairs are 1,000 / 5,000 sprites. Rates count the app's
 | Ubuntu 24.04 arm64, M4 Pro VM, Xvfb with GSK Cairo | 40.4 / 16.1 | 0.09 / 0.10 | 0.04 / 0.03 | 262 / 253 |
 | Android 12, Pixel 3 XL, 60 Hz | 59.6 / 28.7 | 9.67 / 30.22 | 0.12 / 0.17 | 896 / 1,495 |
 | Headless Chrome 158, M4 Pro | 60.0 / 56.4 | 2.74 / 11.71 | 0.05 / 0.07 | 504 / 660 |
-| Windows | Pending CI run | Pending | Pending | Pending |
+| Windows x64, GitHub Actions, 64 Hz | 44.5 / 45.3 | 1.39 / 4.87 | 0.00 / 0.02 | 234 / 240 |
 
 The desktop main column uses the monitor's measured work per frame. In particular, macOS's figure omits Core Animation's asynchronous drawing. On Android, main is the median from `HandleInputStart` to `SyncQueued` in `adb shell dumpsys gfxinfo <package> framestats`, with p95 of 11.17 / 31.84 ms over 120 frames per load. Chrome main is the union of renderer main-thread task time between consecutive animation callbacks in a DevTools trace. Core is the median of the logged per-second means.
 
-Batching is warranted on macOS, where each crop creates a Core Graphics subimage and both loads miss 60 Hz, and on Android at 5,000 sprites, where main-thread work alone exceeds one refresh. The Linux software renderer also falls short and warrants measuring a reused atlas pattern on native Linux. Chrome holds 60 Hz at 1,000 and falls below it at 5,000. The Windows decision needs its Direct2D run. [DrawAtlas](https://github.com/nsgo-dev/nsgo/issues/1103) tracks the implementation and comparison.
+Batching is warranted on macOS, where each crop creates a Core Graphics subimage and both loads miss 60 Hz, and on Android at 5,000 sprites, where main-thread work alone exceeds one refresh. The Linux software renderer also falls short and warrants measuring a reused atlas pattern on native Linux. Chrome holds 60 Hz at 1,000 and falls below it at 5,000. Windows keeps about 45 callbacks/s at both loads, while its main-thread work rises from 1.39 to 4.87 ms. [DrawAtlas](https://github.com/nsgo-dev/nsgo/issues/1103) tracks the implementation and comparison.
 
 ## Partial frames on Windows
 
