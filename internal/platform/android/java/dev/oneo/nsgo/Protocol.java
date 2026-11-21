@@ -29,7 +29,7 @@ final class Protocol {
     static Message readMessage(DataInputStream in) throws IOException {
         int kind = in.read();
         if (kind == -1) return null;
-        if (kind < BATCH || kind > SCAN) throw invalidMessage("unexpected message kind " + kind);
+        if (kind < BATCH || kind > PIXEL_FRAME) throw invalidMessage("unexpected message kind " + kind);
         int length;
         try {
             length = in.readInt();
@@ -80,6 +80,8 @@ final class Protocol {
     static final int COOKIES = 20;
     /** Starts or stops the code scanner: the surface, the request's count and a SCAN_START or SCAN_STOP (scan.go, Scanner). */
     static final int SCAN = 21;
+    /** A bitmap of the next batch: item index, key, width, height and premultiplied RGBA bytes. */
+    static final int PIXEL_FRAME = 22;
 
     // Java to Go.
     static final int START = 1;

@@ -23,7 +23,7 @@ core.Image{
 
 ## Frames the app draws
 
-`Pixels` shows an `*image.RGBA` the app draws, a video player's or an emulator's frames, with nothing encoded, loaded or decoded. Write each frame into the same buffer and bump `Version`: the view shows it with no load events and no fade, its alpha kept, and on macOS, iOS, tvOS, watchOS, Windows and Linux swaps it in place with no blank frame in between. Without `Size` it measures its pixels in points.
+`Pixels` shows an `*image.RGBA` the app draws, a video player's or an emulator's frames, with nothing encoded, loaded or decoded. Write each frame into the same buffer and bump `Version`: the view shows it with no load events and no fade, its alpha kept, and on macOS, iOS, tvOS, watchOS, Android, Windows and Linux swaps it in place with no blank frame in between. Without `Size` it measures its pixels in points.
 
 ```go
 frame := image.NewRGBA(image.Rect(0, 0, 960, 540))
@@ -42,9 +42,9 @@ core.Image{ResizeMode: core.Contain, SourceFunc: func() core.ImageSource {
 }}
 ```
 
-NSGo copies the pixels when the commit that carries a new `Version` runs, so the app may write the next frame from its next `RequestAnimationFrame` callback; a decoder on a goroutine of its own writes into a second buffer and posts the swap. The same `Version` is not drawn again. `cx.ImageSize` answers a pixel source at once with its buffer's size. A `core.Canvas` draws pixels with `DrawImage`, copied the same way, on every platform but Android, HarmonyOS and mini programs. A `core.Shader`'s `Images` take pixels the same way, so a shader can filter a frame the app writes, such as an emulator's screen, on every platform that draws shaders.
+NSGo copies the pixels when the commit that carries a new `Version` runs, so the app may write the next frame from its next `RequestAnimationFrame` callback; a decoder on a goroutine of its own writes into a second buffer and posts the swap. The same `Version` is not drawn again. `cx.ImageSize` answers a pixel source at once with its buffer's size. A `core.Canvas` draws pixels with `DrawImage`, copied the same way, on every platform but HarmonyOS and mini programs. A `core.Shader`'s `Images` take pixels the same way, so a shader can filter a frame the app writes, such as an emulator's screen, on every platform that draws shaders.
 
-macOS, iOS, tvOS, watchOS, Windows and Linux draw the pixels directly. Android and the web show an image view's pixels through a PNG made once per version, loaded as a new image, so the view is blank between versions until it loads; the web's canvases draw the pixels directly. HarmonyOS and mini programs do not show pixels yet.
+macOS, iOS, tvOS, watchOS, Android, Windows and Linux draw the pixels directly. The web shows an image view's pixels through a PNG made once per version, loaded as a new image, so the view is blank between versions until it loads; the web's canvases draw the pixels directly. HarmonyOS and mini programs do not show pixels yet.
 
 ## Resources and scales
 

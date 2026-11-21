@@ -28,6 +28,9 @@ import android.view.accessibility.AccessibilityNodeProvider;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * A canvas node: it plays the latest drawing the engine recorded, as
@@ -52,6 +55,7 @@ final class CanvasNode extends View {
     }
 
     CanvasImages<Picture> pictures;
+    private Map<String, Picture> pixels = Collections.emptyMap();
 
     /** A named part of the drawing, in points. */
     static final class Part {
@@ -86,6 +90,33 @@ final class CanvasNode extends View {
 
     CanvasNode(Context context) {
         super(context);
+    }
+
+    /** Retains exactly the frames the new drawing uses. A new version can reuse a bitmap of its size. */
+    void setPixels(String[] keys, Map<String, PixelFrame> frames) {
+        if (keys.length == 0) {
+            pixels = Collections.emptyMap();
+            return;
+        }
+        Map<String, Picture> next = new HashMap<>();
+        for (String key : keys) next.put(key, pixels.get(key));
+        Map<Long, ArrayDeque<Bitmap>> spare = new HashMap<>();
+        for (Map.Entry<String, Picture> entry : pixels.entrySet()) {
+            Picture picture = entry.getValue();
+            if (picture == null || next.containsKey(entry.getKey())) continue;
+            Bitmap bitmap = picture.bitmap;
+            long size = PixelFrame.size(bitmap.getWidth(), bitmap.getHeight());
+            spare.computeIfAbsent(size, ignored -> new ArrayDeque<>()).add(bitmap);
+        }
+        for (Map.Entry<String, PixelFrame> entry : frames.entrySet()) {
+            String key = entry.getKey();
+            if (!next.containsKey(key)) continue;
+            PixelFrame frame = entry.getValue();
+            ArrayDeque<Bitmap> candidates = spare.get(frame.size());
+            Bitmap bitmap = frame.copyInto(candidates == null ? null : candidates.poll());
+            if (bitmap != null) next.put(key, new Picture(bitmap, 1));
+        }
+        pixels = next;
     }
 
     void setOps(byte[] ops, int[] offsets, boolean[] colors, Part[] parts) {
@@ -123,13 +154,13 @@ final class CanvasNode extends View {
         int layer = canvas.saveLayer(0, 0, getWidth(), getHeight(), null);
         float density = getResources().getDisplayMetrics().density;
         canvas.scale(density, density);
-        new Player(canvas, getWidth() / density, getHeight() / density, pictures).play(ByteBuffer.wrap(ops));
+        new Player(canvas, getWidth() / density, getHeight() / density, pictures, pixels).play(ByteBuffer.wrap(ops));
         canvas.restoreToCount(layer);
     }
 
     /** Replays a static drawing, also used by the tab bar's SVG icons. */
     static void play(Canvas canvas, float width, float height, byte[] ops) {
-        new Player(canvas, width, height, null).play(ByteBuffer.wrap(ops));
+        new Player(canvas, width, height, null, Collections.emptyMap()).play(ByteBuffer.wrap(ops));
     }
 
     // Assistive technology sees the parts as virtual views.
@@ -364,8 +395,11 @@ final class CanvasNode extends View {
 
         private final CanvasImages<Picture> pictures;
 
-        Player(Canvas canvas, float width, float height, CanvasImages<Picture> pictures) {
+        private final Map<String, Picture> pixels;
+
+        Player(Canvas canvas, float width, float height, CanvasImages<Picture> pictures, Map<String, Picture> pixels) {
             this.pictures = pictures;
+            this.pixels = pixels;
             this.canvas = canvas;
             this.width = width;
             this.height = height;
@@ -795,34 +829,32 @@ final class CanvasNode extends View {
             b.getFloat(); // the density its name gives, which the picture carries
             float x = b.getFloat(), y = b.getFloat(), w = b.getFloat(), h = b.getFloat();
             float sx = b.getFloat(), sy = b.getFloat(), sw = b.getFloat(), sh = b.getFloat();
-            if (pictures == null) return;
-            CanvasImages<Picture>.Lease lease = pictures.acquire(key);
-            if (lease == null) return;
-            try {
-                Picture p = lease.value;
-                float natW = p.bitmap.getWidth() / p.scale, natH = p.bitmap.getHeight() / p.scale;
-                if (w == 0 && h == 0) {
-                    w = natW;
-                    h = natH;
+            if (pixels.containsKey(key)) {
+                Picture picture = pixels.get(key);
+                if (picture != null) image(picture, x, y, w, h, sx, sy, sw, sh);
+            } else if (pictures != null && !key.isEmpty()) {
+                try (CanvasImages<Picture>.Lease lease = pictures.acquire(key)) {
+                    if (lease != null) image(lease.value, x, y, w, h, sx, sy, sw, sh);
                 }
-                Rect src = null;
-                if (sw != 0 || sh != 0) {
-                    src = new Rect(Math.round(sx * p.scale), Math.round(sy * p.scale), Math.round((sx + sw) * p.scale),
-                            Math.round((sy + sh) * p.scale));
-                }
-                paint.reset();
-                paint.setAntiAlias(true);
-                paint.setFilterBitmap(true);
-                paint.setAlpha(Math.round(255 * state.alpha));
-                RectF dst = new RectF(x, y, x + w, y + h);
-                Rect from = src;
-                canvas.save();
-                canvas.concat(state.ctm);
-                draw(() -> canvas.drawBitmap(p.bitmap, from, dst, paint), true);
-                canvas.restore();
-            } finally {
-                lease.close();
             }
+        }
+
+        private void image(Picture p, float x, float y, float w, float h, float sx, float sy, float sw, float sh) {
+            if (w == 0 && h == 0) {
+                w = p.bitmap.getWidth() / p.scale;
+                h = p.bitmap.getHeight() / p.scale;
+            }
+            Rect from = sw == 0 && sh == 0 ? null : new Rect(Math.round(sx * p.scale), Math.round(sy * p.scale),
+                    Math.round((sx + sw) * p.scale), Math.round((sy + sh) * p.scale));
+            paint.reset();
+            paint.setAntiAlias(true);
+            paint.setFilterBitmap(true);
+            paint.setAlpha(Math.round(255 * state.alpha));
+            RectF dst = new RectF(x, y, x + w, y + h);
+            canvas.save();
+            canvas.concat(state.ctm);
+            draw(() -> canvas.drawBitmap(p.bitmap, from, dst, paint), true);
+            canvas.restore();
         }
 
         /** The color with the global alpha applied. */

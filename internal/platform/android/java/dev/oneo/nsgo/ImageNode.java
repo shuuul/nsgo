@@ -35,6 +35,7 @@ final class ImageNode extends FrameLayout {
     int request;
     /** Whether the request's source is shown, which the placeholder then stays under. */
     private boolean loaded;
+    private Bitmap pixels;
     private int fade = DEFAULT_FADE;
     private int mode = Protocol.RESIZE_COVER;
     /** The position on each axis: a fraction of the free space plus pixels. */
@@ -72,21 +73,24 @@ final class ImageNode extends FrameLayout {
      * node until its bitmaps arrive.
      */
     void configure(int request, int mode, float blur, int fadeMillis) {
+        boolean refit = mode != this.mode || blur != this.blur;
         this.mode = mode;
         fade = fadeMillis > 0 ? fadeMillis : DEFAULT_FADE;
         // Blurring a view needs API 31; before it fit blurs the bitmaps.
-        if (Build.VERSION.SDK_INT >= 31) {
+        if (Build.VERSION.SDK_INT >= 31 && blur != this.blur) {
             RenderEffect effect = blur > 0 ? RenderEffect.createBlurEffect(blur, blur, Shader.TileMode.CLAMP) : null;
             placeholder.setRenderEffect(effect);
             source.setRenderEffect(effect);
-        } else {
-            this.blur = blur;
         }
-        fit(placeholder);
-        fit(source);
+        this.blur = blur;
+        if (refit) {
+            fit(placeholder);
+            fit(source);
+        }
         if (request == this.request) return;
         this.request = request;
         loaded = false;
+        pixels = null;
         source.animate().cancel();
         show(placeholder, null);
         show(source, null);
@@ -94,6 +98,7 @@ final class ImageNode extends FrameLayout {
 
     /** Sets the position: each axis a fraction of the free space plus pixels. */
     void position(float xFraction, float x, float yFraction, float y) {
+        if (this.xFraction == xFraction && this.x == x && this.yFraction == yFraction && this.y == y) return;
         this.xFraction = xFraction;
         this.x = x;
         this.yFraction = yFraction;
@@ -202,6 +207,24 @@ final class ImageNode extends FrameLayout {
         show(source, image);
         source.setAlpha(0f);
         source.animate().alpha(1f).setDuration(fade).withEndAction(() -> show(placeholder, null));
+    }
+
+    /** Replaces the pixels in place, with no decoder, fade or load events. */
+    void showPixels(PixelFrame frame) {
+        Bitmap bitmap = frame.copyInto(pixels);
+        if (bitmap == null) return;
+        if (pixels != bitmap) {
+            pixels = bitmap;
+            loaded = true;
+            source.setAlpha(1f);
+            show(source, new BitmapDrawable(getResources(), pixels));
+        } else {
+            if (Build.VERSION.SDK_INT < 31 && blur > 0) {
+                sourceSharp.radius = 0;
+                fit(source);
+            }
+            source.invalidate();
+        }
     }
 
     /** Shows image in view, fitted, playing it when it is animated and stopping what it showed. */

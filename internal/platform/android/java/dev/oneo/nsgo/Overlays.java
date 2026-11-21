@@ -89,12 +89,6 @@ final class Overlays {
         return open.size() > 0;
     }
 
-    /** Applies a batch of overlay id's tree; one that closed takes none. */
-    void mount(int id, byte[] batch) {
-        Overlay o = open.get(id);
-        if (o != null) o.view.mount(batch);
-    }
-
     void redrawCanvases() {
         for (int i = 0; i < open.size(); i++) open.valueAt(i).view.redrawCanvases();
     }

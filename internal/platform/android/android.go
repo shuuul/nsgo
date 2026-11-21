@@ -1,6 +1,6 @@
 //go:build android
 
-// Package android is NSGo's Android backend. The app is a plain Go executable that the prebuilt Java runtime in java/ starts as a child process; nsgo packages it as libnsgo.so in an APK. The two talk over the process's pipes: one message per commit, per event and per step of text. Java keeps the text the engine prepares, measures it and lays it out with StaticLayout, and mounts one Android view per node; measuring, and laying out text with attachments, are the only round trips. Go fetches images and Java decodes them, animated GIF and WebP included; Go rasterizes SVG with imagedecode first, as Android cannot. Java hosts web views, videos and native components' views, plays canvas drawings, runs style transitions, a port of core.Animator and layout animations on Choreographer frames, shows input accessory bars above the keyboard and reports the environment, back, keys, presses outside overlays and answers to alerts and clipboard reads. An overlay over other apps shows in a window of its own, an NsgoView the first view hands its surface's batches, images and events on to (overlay.go).
+// Package android is NSGo's Android backend. The app is a plain Go executable that the prebuilt Java runtime in java/ starts as a child process; nsgo packages it as libnsgo.so in an APK. The two talk over the process's pipes: one batch per commit, with separate messages for pixel frames, and one message per event and per step of text. Java keeps the text the engine prepares, measures it and lays it out with StaticLayout, and mounts one Android view per node; measuring, and laying out text with attachments, are the only round trips. Go fetches images and Java decodes them, animated GIF and WebP included; Go rasterizes SVG with imagedecode first, as Android cannot. Java hosts web views, videos and native components' views, plays canvas drawings, runs style transitions, a port of core.Animator and layout animations on Choreographer frames, shows input accessory bars above the keyboard and reports the environment, back, keys, presses outside overlays and answers to alerts and clipboard reads. An overlay over other apps shows in a window of its own, an NsgoView the first view hands its surface's batches, images and events on to (overlay.go).
 //
 // Go builds Android shared libraries only with cgo and the NDK; a second
 // process keeps every build an executable, so arm64 needs only Go. An
@@ -85,6 +85,8 @@ const (
 	msgCookies = 20
 	// msgScan starts or stops the runtime's code scanner (scan.go).
 	msgScan = 21
+	// msgPixelFrame carries a bitmap for an item of the next batch on its surface.
+	msgPixelFrame = 22
 
 	// Java to Go.
 	msgStart       = 1 // the view's size and the folds measured at it (readSize), as msgResize
@@ -889,7 +891,9 @@ func (s *surface) mount(v *treeView, b *driver.MountBatch) {
 		b = &out
 	}
 	s.canvasRequests.update(v.id, b)
-	requests, loads := s.trackImages(v, b)
+	var frames []pixelFrame
+	requests, loads := s.trackImages(v, b, &frames)
+	canvases := v.trackCanvasPixels(b, &frames)
 	s.stage(v.id, b)
 	for i := range b.Items {
 		if it := &b.Items[i]; it.Kind == driver.ItemPickDirectories {
@@ -900,9 +904,9 @@ func (s *surface) mount(v *treeView, b *driver.MountBatch) {
 	shaders := s.trackShaders(v, b)
 	first := !v.defaultsSent
 	v.defaultsSent = true
-	s.send(msgBatch, func(w *writer) {
+	s.sendBatch(frames, func(w *writer) {
 		w.u32(v.id)
-		encode(w, b, first, requests, natives, shaders)
+		encode(w, b, first, requests, natives, shaders, canvases)
 	})
 	for _, l := range loads {
 		go s.load(l)
@@ -922,6 +926,8 @@ type treeView struct {
 	// defaultsSent is set once a batch carried the defaults.
 	defaultsSent bool
 	images       map[driver.NodeID]*imageView
+	// canvasPixels keeps the copies Java's mounted drawings hold, preventing their address-based keys from being reused.
+	canvasPixels map[driver.NodeID]map[string]*image.RGBA
 	// shaderPixels are the copies of pixels each shader view was sent last, by image, which Java keeps.
 	shaderPixels map[driver.NodeID][]*image.RGBA
 }
@@ -958,25 +964,8 @@ type imageView struct {
 	request             uint32
 	cancel              context.CancelFunc
 	size                driver.Size // the view's, which an SVG is drawn for
-	// pixels is the core's copy of the pixels the view shows last, and png their PNG: the core sends the same copy again when only the look changes, and the view keeps no other.
+	// A pixel source keeps the same request across frames. A style update with the same copy sends no pixels.
 	pixels *image.RGBA
-	png    []byte
-}
-
-// asPNG returns c with its source's pixels as a PNG Java decodes, made once for each copy the core sends (imagedecode.AsPNG), or c itself when it has none.
-func (v *imageView) asPNG(c *driver.ImageConfig) *driver.ImageConfig {
-	if c == nil || c.Source.Pixels == nil {
-		v.pixels, v.png = nil, nil
-		return c
-	}
-	if c.Source.Pixels != v.pixels {
-		v.pixels, v.png = c.Source.Pixels, imagedecode.AsPNG(c.Source).Data
-	}
-	out := *c
-	out.Source.Pixels, out.Source.URI, out.Source.Data = nil, "", v.png
-	// Pixels fade nothing in, and Java fades over its default for 0: a millisecond, the least the message carries, shows each frame at once.
-	out.FadeDuration = time.Millisecond
-	return &out
 }
 
 func (v *imageView) stop() {
@@ -1000,7 +989,7 @@ type imageLoad struct {
 // gets a new request number, which its ItemImage carries and its bytes
 // name, so Java drops the bytes of requests it has moved past. It returns
 // the request of each ItemImage in b, in order, and the loads to start.
-func (s *surface) trackImages(tv *treeView, b *driver.MountBatch) ([]uint32, []imageLoad) {
+func (s *surface) trackImages(tv *treeView, b *driver.MountBatch, frames *[]pixelFrame) ([]uint32, []imageLoad) {
 	var requests []uint32
 	var loads []imageLoad
 	images := tv.images
@@ -1029,16 +1018,28 @@ func (s *surface) trackImages(tv *treeView, b *driver.MountBatch) ([]uint32, []i
 				v = &imageView{}
 				images[it.ID] = v
 			}
-			// Java shows pixels as a PNG made once for each version the core copied.
-			it.Image = v.asPNG(it.Image)
 			c := it.Image
-			if v.request == 0 || !sameSource(v.source, c.Source) || !sameSource(v.placeholder, c.Placeholder) {
+			px := c.Source.Pixels
+			source, placeholder := c.Source, c.Placeholder
+			if px != nil {
+				// A pixel source needs no placeholder, loader or load events.
+				source, placeholder = driver.ImageSource{}, driver.ImageSource{}
+				if px != v.pixels {
+					*frames = append(*frames, pixelFrame{item: i, pixels: px})
+				}
+			}
+			if v.request == 0 || (v.pixels == nil) != (px == nil) || !sameSource(v.source, source) || !sameSource(v.placeholder, placeholder) {
 				v.stop()
 				s.requests++
-				ctx, cancel := context.WithCancel(context.Background())
-				v.source, v.placeholder, v.request, v.cancel = c.Source, c.Placeholder, s.requests, cancel
-				loads = append(loads, imageLoad{ctx, tv.id, it.ID, v.request, c.Source, c.Placeholder, v.events, v.size})
+				v.source, v.placeholder, v.request = source, placeholder, s.requests
+				v.cancel = nil
+				if px == nil {
+					ctx, cancel := context.WithCancel(context.Background())
+					v.cancel = cancel
+					loads = append(loads, imageLoad{ctx, tv.id, it.ID, v.request, source, placeholder, v.events, v.size})
+				}
 			}
+			v.pixels = px
 			requests = append(requests, v.request)
 		}
 	}
@@ -1190,7 +1191,7 @@ var defaults = sync.OnceValue(func() []byte {
 })
 
 // encode writes a batch in the format NsgoView.mount reads, after the surface's ID mount writes: each item is its kind, its ID and the fields of that kind; requests numbers its ItemImage items in order, and natives says what its ItemNative items send. Kinds it does not know, ItemBackUnhandled and the desktop-only ItemMenu, which Java ignores, have no fields, and ItemWindow only an overlay's (writeWindow). The batch's layout animation comes before its items, and the first batch's defaults after it.
-func encode(w *writer, b *driver.MountBatch, first bool, requests []uint32, natives []nativeItem, shaders []shaderItem) {
+func encode(w *writer, b *driver.MountBatch, first bool, requests []uint32, natives []nativeItem, shaders []shaderItem, canvases map[int][]string) {
 	w.u32(uint32(b.Root))
 	writeLayoutAnimation(w, b.LayoutAnimation)
 	w.flags(first)
@@ -1331,6 +1332,11 @@ func encode(w *writer, b *driver.MountBatch, first bool, requests []uint32, nati
 			// The ops' length first: Java keeps them as they are and plays
 			// them on each draw.
 			writeDrawing(w, it.Drawing)
+			keys := canvases[i]
+			w.u32(uint32(len(keys)))
+			for _, key := range keys {
+				w.str(key)
+			}
 		case driver.ItemShader:
 			if it.Shader != nil && len(shaders) > 0 {
 				writeShader(w, it.Shader, shaders[0])
@@ -1631,12 +1637,6 @@ func (s *surface) canvasRequest(r *reader) {
 		if !known {
 			s.sendCanvasImage(surface, key, request, decodedImage{}, true)
 		}
-		return
-	}
-	if src.Pixels != nil {
-		// Android's canvases draw no pixels yet: a failed entry, with no log line for each version.
-		s.canvasRequests.finish(surface, key, load)
-		s.sendCanvasImage(surface, key, request, decodedImage{}, false)
 		return
 	}
 	go func() {

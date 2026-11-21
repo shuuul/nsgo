@@ -84,6 +84,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.Map;
@@ -776,6 +777,9 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
         }
     }
 
+    /** Pixel frames of the next batch. Only the pipe reader touches them until it posts the whole batch to the UI thread. */
+    private SparseArray<Map<String, PixelFrame>> pendingPixels;
+
     @Override
     public void onMessage(int kind, byte[] payload) {
         DataInputStream message = new DataInputStream(new ByteArrayInputStream(payload));
@@ -784,8 +788,25 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
                 case Protocol.BATCH: {
                     // Each batch names its surface: an overlay's goes to its view.
                     int to = message.readInt();
-                    if (to == 0) ui.post(() -> mount(payload));
-                    else ui.post(() -> overlays.mount(to, payload));
+                    SparseArray<Map<String, PixelFrame>> pixels = pendingPixels;
+                    pendingPixels = null;
+                    ui.post(() -> {
+                        NsgoView view = to == 0 ? this : overlays.view(to);
+                        if (view != null) view.mount(payload, pixels);
+                    });
+                    break;
+                }
+                case Protocol.PIXEL_FRAME: {
+                    int item = message.readInt();
+                    String key = Protocol.readString(message);
+                    PixelFrame frame = PixelFrame.read(message, payload);
+                    if (pendingPixels == null) pendingPixels = new SparseArray<>();
+                    Map<String, PixelFrame> frames = pendingPixels.get(item);
+                    if (frames == null) {
+                        frames = new HashMap<>();
+                        pendingPixels.put(item, frames);
+                    }
+                    frames.put(key, frame);
                     break;
                 }
                 case Protocol.IMAGE: {
@@ -868,6 +889,7 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
 
     @Override
     public void onProcessEnded(IOException error) {
+        pendingPixels = null;
         if (error != null) Log.i(TAG, "app process ended: " + error);
         // Leave back to the system from now on; the app's components, network callback and decoders go with it. The reader has passed on its last message, so nothing decodes after this.
         ui.post(this::release);
@@ -2352,7 +2374,7 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
     }
 
     /** Applies a batch of this view's surface, whose ID comes first. */
-    void mount(byte[] batch) {
+    private void mount(byte[] batch, SparseArray<Map<String, PixelFrame>> pixels) {
         if (!mounted && primary == null) {
             // The engine runs: a press that started the app goes to it.
             mounted = true;
@@ -2396,7 +2418,8 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
                     // while the rest of its first batch mounts.
                     if (id == root) show(n.view);
                 } else {
-                    apply(kind, nodes.get(id), in);
+                    Map<String, PixelFrame> frames = pixels == null ? null : pixels.get(i);
+                    apply(kind, nodes.get(id), in, frames == null ? Collections.emptyMap() : frames);
                 }
             }
         } catch (IOException e) {
@@ -2439,7 +2462,7 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
                 Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f;
     }
 
-    private void apply(int kind, Node n, DataInputStream in) throws IOException {
+    private void apply(int kind, Node n, DataInputStream in, Map<String, PixelFrame> frames) throws IOException {
         switch (kind) {
             case Protocol.ITEM_INSERT: {
                 Node parent = nodes.get(in.readInt());
@@ -2568,6 +2591,8 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
                 float yFraction = in.readFloat(), y = in.readFloat() * density;
                 n.image.configure(request, mode, blur, fade);
                 n.image.position(xFraction, x, yFraction, y);
+                PixelFrame frame = frames.get("");
+                if (frame != null) n.image.showPixels(frame);
                 break;
             }
             case Protocol.ITEM_MODAL:
@@ -2657,6 +2682,9 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
                     boolean selected = in.readUnsignedByte() != 0;
                     parts[i] = new CanvasNode.Part(x, y, w, h, role, label, testID, selected);
                 }
+                String[] keys = new String[in.readInt()];
+                for (int i = 0; i < keys.length; i++) keys[i] = Protocol.readString(in);
+                n.canvas.setPixels(keys, frames);
                 n.canvas.setOps(ops, offsets, colors, parts);
                 animator.bindCanvas(n.id, nodes);
                 applyAnimated();
