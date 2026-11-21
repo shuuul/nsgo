@@ -118,6 +118,17 @@ Every frame runs the commit on the engine goroutine and, on the main thread, the
   | Linux, Hyprland, Radeon 680M, 60 Hz | 70% → 61–62% | 36% → 23–24% |
 - The main thread never waits for the GPU: Metal shader views take drawables and present on goroutines of their own ([shaders](shaders.md#platforms)).
 
+## Canvas atlas batching
+
+The [many-sprite scenario](https://github.com/nsgo-dev/nsgo/pull/1164) draws 1,000 or 5,000 moving 32 × 32 crops from one 1024 × 1024 image into 16-point squares. For this comparison, both runs used the same fixture and positions, with one `DrawAtlas` call in place of the per-sprite `DrawImageFrom` calls. Source rectangles and transform storage were prepared before the frame loop. Each load ran for five seconds after a two-second warm-up. Rates count animation callbacks, and held-frame capture age includes test settling, PNG encoding and readback.
+
+| Target and setup | 1,000 callbacks/s | 5,000 callbacks/s | Capture age p50 (1,000 / 5,000, ms) |
+| --- | ---: | ---: | ---: |
+| macOS 27.2, M4 Pro, 120 Hz | 24.56 → 28.63 | 6.64 → 7.76 | 281 / 415 → 283 / 397 |
+| Headless Chromium, M4 Pro | 59.81 → 60.01 | 55.45 → 59.99 | 520 / 1,205 → 742 / 1,095 |
+
+On macOS the median of each second's app recording time fell from 0.21 to 0.04 ms at 1,000 sprites and from 0.69 to 0.08 ms at 5,000. The frame rate still reflects Core Graphics image draws and Core Animation.
+
 ## Partial frames on Windows
 
 As NSH's, a frame draws only what changed since its back buffer was drawn and presents only what changed since the last frame (`internal/platform/windows/damage.go`):

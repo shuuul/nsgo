@@ -34,14 +34,15 @@ func TestCanvasAtlasMatchesDrawImageFrom(t *testing.T) {
 	left := core.Bounds{Size: core.Size{Width: 24, Height: 24}}
 	right := left
 	right.Origin.X = 24
-	rects := []core.Bounds{left, right, left, right}
+	rects := []core.Bounds{left, right, left, right, left}
 	xforms := []core.RSXform{
 		{SCos: 1, TX: 8, TY: 8},
 		{SCos: 0.5, TX: 24, TY: 16},
 		{SCos: 2, TX: 56, TY: 16},
 		{SCos: 0.8, SSin: 0.6, TX: 28, TY: 42},
+		{SCos: 0.8, TX: 72.2, TY: 65.2},
 	}
-	alphas := []float32{1, 0.6, 0.75, 0.8}
+	alphas := []float32{1, 0.6, 0.75, 0.8, 0.75}
 	var useAtlas *core.Signal[bool]
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		useAtlas = core.NewSignal(cx, false)
@@ -55,7 +56,8 @@ func TestCanvasAtlasMatchesDrawImageFrom(t *testing.T) {
 				d.SetAlpha(0.8)
 				if atlas {
 					d.DrawAtlas(src, rects[:3], xforms[:3], alphas[:3])
-					d.DrawAtlas(src, rects[3:], xforms[3:], alphas[3:])
+					d.DrawAtlas(src, rects[3:4], xforms[3:4], alphas[3:4])
+					d.DrawAtlas(src, rects[4:], xforms[4:], alphas[4:])
 				} else {
 					for i, r := range rects {
 						x, y, w, h := float32(r.Origin.X), float32(r.Origin.Y), float32(r.Size.Width), float32(r.Size.Height)

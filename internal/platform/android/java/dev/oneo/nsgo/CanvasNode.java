@@ -839,27 +839,41 @@ final class CanvasNode extends View {
                 Picture p = lease.value;
                 canvas.save();
                 canvas.concat(state.ctm);
-                if (state.composite == SOURCE_OVER && state.shadowColor == 0
-                        && AtlasMesh.draw(canvas, p, sprites, count, state.alpha)) {
+                boolean simple = state.composite == SOURCE_OVER && Color.alpha(state.shadowColor) == 0;
+                if (simple && AtlasMesh.draw(canvas, p, sprites, count, state.alpha)) {
                     canvas.restore();
                     return;
                 }
+                Rect from = new Rect();
+                RectF to = new RectF();
+                paint.reset();
+                paint.setAntiAlias(true);
+                paint.setFilterBitmap(true);
                 for (int i = 0; i < count; i++) {
                     float x = sprites.getFloat(), y = sprites.getFloat(), w = sprites.getFloat(), h = sprites.getFloat();
                     float c = sprites.getFloat(), s = sprites.getFloat(), tx = sprites.getFloat(), ty = sprites.getFloat();
                     float alpha = sprites.getFloat() * state.alpha;
-                    Rect from = new Rect(Math.round(x * p.scale), Math.round(y * p.scale),
+                    from.set(Math.round(x * p.scale), Math.round(y * p.scale),
                             Math.round((x + w) * p.scale), Math.round((y + h) * p.scale));
-                    RectF to = new RectF(0, 0, w, h);
-                    paint.reset();
-                    paint.setAntiAlias(true);
-                    paint.setFilterBitmap(true);
                     paint.setAlpha(Math.round(255 * alpha));
-                    Matrix transform = new Matrix();
-                    transform.setValues(new float[]{c, -s, tx, s, c, ty, 0, 0, 1});
+                    if (s == 0 && c > 0) {
+                        to.set(tx, ty, tx + w * c, ty + h * c);
+                        if (simple) {
+                            canvas.drawBitmap(p.bitmap, from, to, paint);
+                        } else {
+                            draw(() -> canvas.drawBitmap(p.bitmap, from, to, paint), true);
+                        }
+                        continue;
+                    }
+                    to.set(0, 0, w, h);
+                    Matrix local = new Matrix();
+                    local.setValues(new float[]{c, -s, tx, s, c, ty, 0, 0, 1});
                     canvas.save();
-                    canvas.concat(transform);
+                    canvas.concat(local);
+                    Matrix original = new Matrix(state.ctm);
+                    state.ctm.preConcat(local);
                     draw(() -> canvas.drawBitmap(p.bitmap, from, to, paint), true);
+                    state.ctm.set(original);
                     canvas.restore();
                 }
                 canvas.restore();

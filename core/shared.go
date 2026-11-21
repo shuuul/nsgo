@@ -65,6 +65,10 @@ type (
 	// DecayConfig slows a value from Velocity (units per second; the value's
 	// current velocity when 0) by Deceleration per millisecond (0.998 when 0).
 	DecayConfig = driver.DecayConfig
+	// AtlasSprite is a recorded source rectangle, transform and opacity.
+	AtlasSprite = driver.AtlasSprite
+	// AtlasSprites is the sprite list recorded by a DrawAtlas operation.
+	AtlasSprites = driver.AtlasSprites
 	// DrawKind is a drawing operation.
 	DrawKind = driver.DrawKind
 	// DrawOp is one operation; Kind says which fields it uses.

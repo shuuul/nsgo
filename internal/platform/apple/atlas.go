@@ -96,18 +96,14 @@ func (p *player) atlas(op *driver.DrawOp) {
 		w, h := float64(sprite.Rect.Size.Width), float64(sprite.Rect.Size.Height)
 		t := sprite.Transform
 		c, s := float64(t.SCos), float64(t.SSin)
+		cgContextSaveGState(ctx)
+		cgContextSetAlpha(ctx, st.alpha*float64(sprite.Alpha))
 		p.layered(false, func() {
-			cgContextSaveGState(ctx)
-			alpha := float64(sprite.Alpha)
-			if !st.composite.Unbounded() {
-				alpha *= st.alpha
-			}
-			cgContextSetAlpha(ctx, alpha)
 			// Local sprite transform followed by the image's vertical flip.
 			cgContextConcatCTM(ctx, affine{A: c, B: s, C: s, D: -c, X: float64(t.TX) - s*h, Y: float64(t.TY) + c*h})
 			cgContextDrawImage(ctx, Rect(0, 0, w, h), tile)
-			cgContextRestoreGState(ctx)
 		})
+		cgContextRestoreGState(ctx)
 		if temporary {
 			Release(tile)
 		}
