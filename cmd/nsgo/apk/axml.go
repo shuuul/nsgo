@@ -38,6 +38,8 @@ type Manifest struct {
 	Permissions []string
 	// TargetSDK replaces the runtime's targetSdkVersion when it is set.
 	TargetSDK int
+	// LoopbackCleartext adds a network policy permitting HTTP to loopback hosts.
+	LoopbackCleartext bool
 	// Overlay declares the runtime's OverlayService, the specialUse foreground service an overlay over other apps takes, for an app that asks for SYSTEM_ALERT_WINDOW; Permissions name its FOREGROUND_SERVICE permissions.
 	Overlay bool
 	// Recording declares the runtime's RecordingService, the microphone foreground service microphone.RecordWAV records in, with the permissions it needs. An app without it declares no such service, as Google Play asks an app to justify each foreground-service type its manifest has.
@@ -65,6 +67,7 @@ const (
 	xmlEndNS        = 0x0101
 	xmlStartElement = 0x0102
 	xmlEndElement   = 0x0103
+	xmlText         = 0x0104
 
 	typeReference = 0x01
 	typeString    = 0x03
@@ -109,6 +112,7 @@ var androidAttrs = map[string]attrSpec{
 	"foregroundServiceType":       {0x01010599, typeHex, parseForegroundServiceType},
 	"value":                       {0x01010024, typeString, nil},
 	"drawable":                    {0x01010199, typeReference, parseAppResource},
+	"networkSecurityConfig":       {0x01010527, typeReference, parseResourceID},
 }
 
 // foregroundServiceTypes are the ServiceInfo.FOREGROUND_SERVICE_TYPE_* names a service lists, as attrs_manifest.xml has them.
@@ -187,7 +191,11 @@ func EncodeManifest(template []byte, m Manifest) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := &encoder{index: map[string]int{}, icon: m.Icon != nil}
+	return encodeXML(root, m.Icon != nil)
+}
+
+func encodeXML(root *node, icon bool) ([]byte, error) {
+	e := &encoder{index: map[string]int{}, icon: icon}
 	// Attribute names come first in the string pool: the resource map
 	// that gives each one its framework ID is indexed by pool position.
 	// It ascends by resource ID, as aapt2 writes it and the system reads
@@ -199,12 +207,15 @@ func EncodeManifest(template []byte, m Manifest) ([]byte, error) {
 		e.ids = append(e.ids, androidAttrs[name].id)
 	}
 
-	prefix, uri := e.str("android"), e.str(androidNS)
-	e.namespace(xmlStartNS, prefix, uri)
+	if len(names) > 0 {
+		e.namespace(xmlStartNS, e.str("android"), e.str(androidNS))
+	}
 	if err := e.element(root); err != nil {
 		return nil, err
 	}
-	e.namespace(xmlEndNS, prefix, uri)
+	if len(names) > 0 {
+		e.namespace(xmlEndNS, e.str("android"), e.str(androidNS))
+	}
 
 	pool := e.pool()
 	var out bytes.Buffer
@@ -263,6 +274,9 @@ func appManifest(template []byte, m Manifest) (*node, error) {
 	}
 	if m.Icon != nil {
 		setAttr(app, androidNS, "icon", iconResource)
+	}
+	if m.LoopbackCleartext {
+		setAttr(app, androidNS, "networkSecurityConfig", fmt.Sprintf("@0x%08x", networkSecurityID(m)))
 	}
 	perms := m.Permissions
 	if m.Recording {
@@ -513,6 +527,13 @@ func (e *encoder) element(n *node) error {
 			attr.kind = typeString
 			attr.data = e.str(a.Value)
 			attr.raw = int32(attr.data)
+			if a.Name.Local == cleartextAttribute {
+				value, err := parseBool(a.Value)
+				if err != nil {
+					return err
+				}
+				attr.kind, attr.data = typeBool, value
+			}
 		default:
 			return fmt.Errorf("manifest: unknown namespace %q", a.Name.Space)
 		}
@@ -551,6 +572,19 @@ func (e *encoder) element(n *node) error {
 		w(a.kind)
 		w(a.data)
 	}
+	if n.text != "" {
+		text := e.str(n.text)
+		w(uint16(xmlText))
+		w(uint16(16))
+		w(uint32(28))
+		w(uint32(0))       // line
+		w(uint32(noIndex)) // comment
+		w(text)
+		w(uint16(8)) // Res_value size
+		w(uint8(0))  // res0
+		w(uint8(typeString))
+		w(text)
+	}
 	for _, kid := range n.kids {
 		if err := e.element(kid); err != nil {
 			return err
@@ -583,32 +617,7 @@ func adaptiveIcon(monochrome bool) *node {
 
 // encodeAdaptiveIcon is the adaptive icon's binary XML, as an APK holds it.
 func encodeAdaptiveIcon(monochrome bool) ([]byte, error) {
-	root := adaptiveIcon(monochrome)
-	e := &encoder{index: map[string]int{}, icon: true}
-	for _, name := range attrNames(root) {
-		e.str(name)
-		e.ids = append(e.ids, androidAttrs[name].id)
-	}
-	e.namespace(xmlStartNS, e.str("android"), e.str(androidNS))
-	if err := e.element(root); err != nil {
-		return nil, err
-	}
-	e.namespace(xmlEndNS, e.str("android"), e.str(androidNS))
-	pool := e.pool()
-	var out bytes.Buffer
-	put := func(v any) { binary.Write(&out, binary.LittleEndian, v) }
-	put(uint16(xmlHeader))
-	put(uint16(8))
-	put(uint32(8 + pool.Len() + 8 + 4*len(e.ids) + e.chunks.Len()))
-	out.Write(pool.Bytes())
-	put(uint16(resourceMap))
-	put(uint16(8))
-	put(uint32(8 + 4*len(e.ids)))
-	for _, id := range e.ids {
-		put(id)
-	}
-	out.Write(e.chunks.Bytes())
-	return out.Bytes(), nil
+	return encodeXML(adaptiveIcon(monochrome), true)
 }
 
 // adaptiveFiles are the adaptive icon's files in an APK: its XML, binary, and its layers' PNGs.
@@ -682,6 +691,7 @@ type node struct {
 	name  xml.Name
 	attrs []xml.Attr
 	kids  []*node
+	text  string
 }
 
 func parseXML(data []byte) (*node, error) {

@@ -174,6 +174,8 @@ type project struct {
 		Permissions []string `yaml:"permissions"`
 		TargetSDK   int      `yaml:"target_sdk"`
 		Recording   bool     `yaml:"recording"`
+		// LoopbackCleartext allows HTTP to loopback in standalone packages.
+		LoopbackCleartext bool `yaml:"loopback_cleartext"`
 	} `yaml:"android"`
 	// Harmonyos is the harmonyos target's: Permissions are the ones its
 	// module.json asks for beyond the runtime's INTERNET, by their

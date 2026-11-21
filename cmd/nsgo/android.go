@@ -149,21 +149,22 @@ func buildAndroidPackage(ctx context.Context, p *project, dir, goarch, ext strin
 		return "", err
 	}
 	err = write(f, androidruntime.Manifest, apk.Manifest{
-		Package:     p.ID,
-		Label:       p.Name,
-		Names:       names.android(),
-		VersionName: p.Version,
-		VersionCode: p.versionCode(),
-		Icon:        icon,
-		Adaptive:    adaptive,
-		Theme:       androidThemes[p.Appearance],
-		Debuggable:  p.testBinary,
-		Permissions: p.androidPermissions(),
-		TargetSDK:   p.Android.TargetSDK,
-		Overlay:     p.androidOverlay(),
-		Recording:   p.Android.Recording,
-		Location:    p.androidLocation(),
-		Libraries:   libraries,
+		Package:           p.ID,
+		Label:             p.Name,
+		Names:             names.android(),
+		VersionName:       p.Version,
+		VersionCode:       p.versionCode(),
+		Icon:              icon,
+		Adaptive:          adaptive,
+		Theme:             androidThemes[p.Appearance],
+		Debuggable:        p.testBinary,
+		Permissions:       p.androidPermissions(),
+		TargetSDK:         p.Android.TargetSDK,
+		LoopbackCleartext: p.Android.LoopbackCleartext,
+		Overlay:           p.androidOverlay(),
+		Recording:         p.Android.Recording,
+		Location:          p.androidLocation(),
+		Libraries:         libraries,
 	}, files, key)
 	if err != nil {
 		return "", err

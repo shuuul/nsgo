@@ -109,10 +109,12 @@ func valueForConfig(values []resValue, config []byte) (resValue, bool) {
 // @mipmap/ic_launcher when icon, at xxxhdpi in iconFile, and the app's
 // name @string/app_name in each language of names, by BCP 47 tag, ""
 // for the default, when names has any. The manifest refers to them by
-// iconResourceID and nameResourceID.
-func resources(pkg string, icon bool, names map[string]string, adaptive *AdaptiveIcon) []byte {
+// iconResourceID and nameResourceID. The network policy, when enabled,
+// follows those types.
+func resources(m Manifest) []byte {
+	names, adaptive := m.Names, m.Adaptive
 	var types []resType
-	if icon {
+	if m.Icon != nil {
 		config := newConfig()
 		binary.LittleEndian.PutUint16(config[14:], densityXXXHigh)
 		binary.LittleEndian.PutUint16(config[24:], 4) // sdkVersion, as aapt2 adds for a density
@@ -152,7 +154,11 @@ func resources(pkg string, icon bool, names map[string]string, adaptive *Adaptiv
 		}
 		types = append(types, t)
 	}
-	return table(pkg, types)
+	if m.LoopbackCleartext {
+		entry := resEntry{key: networkSecurityName, values: []resValue{{newConfig(), networkSecurityFile}}}
+		types = append(types, resType{name: "xml", entries: []resEntry{entry}})
+	}
+	return table(m.Package, types)
 }
 
 func newConfig() []byte {

@@ -170,6 +170,7 @@ type xmlNode struct {
 	attrs []xmlAttribute
 	kids  []*xmlNode
 	doc   *xmlDocument
+	text  string
 }
 
 type xmlAttribute struct {
@@ -310,6 +311,8 @@ func decodeXML(t *testing.T, data []byte) xmlDocument {
 				doc.root = n
 			}
 			stack = append(stack, n)
+		case xmlText:
+			stack[len(stack)-1].text = doc.strings[u32(off+16)]
 		case xmlEndElement:
 			stack = stack[:len(stack)-1]
 		}
@@ -388,6 +391,7 @@ func TestFrameworkAttributeIDs(t *testing.T) {
 		"windowSoftInputMode":         0x0101022b,
 		"value":                       0x01010024,
 		"drawable":                    0x01010199,
+		"networkSecurityConfig":       0x01010527,
 	}
 	for name, spec := range androidAttrs {
 		id, ok := want[name]

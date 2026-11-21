@@ -12,7 +12,7 @@ import (
 
 // Write writes a signed APK to w: template's manifest with m filled in,
 // then files, and the resource table the system expects, which holds the
-// launcher icon and the app's names when m has them.
+// launcher icon, app names and network policy when m has them.
 func Write(w io.Writer, template []byte, m Manifest, files []File, key *Key) error {
 	manifest, err := EncodeManifest(template, m)
 	if err != nil {
@@ -30,7 +30,14 @@ func Write(w io.Writer, template []byte, m Manifest, files []File, key *Key) err
 		}
 		all = append(all, adaptive...)
 	}
-	all = append(all, File{Name: "resources.arsc", Data: resources(m.Package, m.Icon != nil, m.Names, m.Adaptive), Stored: true})
+	if m.LoopbackCleartext {
+		policy, err := encodeXML(networkSecurityConfig(), false)
+		if err != nil {
+			return err
+		}
+		all = append(all, File{Name: networkSecurityFile, Data: policy, Stored: true})
+	}
+	all = append(all, File{Name: "resources.arsc", Data: resources(m), Stored: true})
 	zip, err := archive(all)
 	if err != nil {
 		return err

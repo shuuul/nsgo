@@ -20,8 +20,8 @@ const BundletoolVersion = "1.18.3"
 
 // WriteBundle writes a signed Android App Bundle to w: template's manifest
 // with m filled in, files as the base module's, by their paths in an APK,
-// and the resource table, which holds the launcher icon and the app's
-// names when m has them.
+// and the resource table, which holds the launcher icon, app names and
+// network policy when m has them.
 func WriteBundle(w io.Writer, template []byte, m Manifest, files []File, key *Key) error {
 	root, err := appManifest(template, m)
 	if err != nil {
@@ -54,8 +54,15 @@ func WriteBundle(w io.Writer, template []byte, m Manifest, files []File, key *Ke
 			all = append(all, file)
 		}
 	}
+	if m.LoopbackCleartext {
+		policy, err := protoElement(networkSecurityConfig(), false, false)
+		if err != nil {
+			return err
+		}
+		all = append(all, File{Name: "base/" + networkSecurityFile, Data: pbBytes(nil, 1, policy)})
+	}
 	all = append(all,
-		File{Name: "base/resources.pb", Data: resourcesProto(m.Package, m.Icon != nil, m.Names, m.Adaptive)},
+		File{Name: "base/resources.pb", Data: resourcesProto(m)},
 		File{Name: "BundleConfig.pb", Data: bundleConfig()})
 	signed, err := signJar(all, key)
 	if err != nil {
@@ -113,6 +120,13 @@ func protoElement(n *node, root, icon bool) ([]byte, error) {
 		case "":
 			attr = pbString(attr, 2, a.Name.Local)
 			attr = pbString(attr, 3, a.Value)
+			if a.Name.Local == cleartextAttribute {
+				item, err := protoItem(a.Name.Local, a.Value, attrSpec{kind: typeBool, parse: parseBool}, icon)
+				if err != nil {
+					return nil, err
+				}
+				attr = pbBytes(attr, 6, item)
+			}
 		case androidNS:
 			spec, ok := androidAttrs[a.Name.Local]
 			if !ok {
@@ -133,6 +147,9 @@ func protoElement(n *node, root, icon bool) ([]byte, error) {
 			return nil, fmt.Errorf("manifest: unknown namespace %q", a.Name.Space)
 		}
 		el = pbBytes(el, 4, attr)
+	}
+	if n.text != "" {
+		el = pbBytes(el, 5, pbString(nil, 2, n.text))
 	}
 	for _, kid := range n.kids {
 		child, err := protoElement(kid, false, icon)
@@ -177,10 +194,11 @@ func protoItem(name, value string, spec attrSpec, icon bool) ([]byte, error) {
 
 // resourcesProto is the module's resource table, resources.pb, holding
 // what resources' binary table does.
-func resourcesProto(pkg string, icon bool, names map[string]string, adaptive *AdaptiveIcon) []byte {
+func resourcesProto(m Manifest) []byte {
+	names, adaptive := m.Names, m.Adaptive
 	var types [][]byte
 	id := uint64(1)
-	if icon {
+	if m.Icon != nil {
 		config := pbVarint(nil, 18, densityXXXHigh)
 		config = pbVarint(config, 24, 4)
 		file := pbString(nil, 1, iconFile)
@@ -224,8 +242,14 @@ func resourcesProto(pkg string, icon bool, names map[string]string, adaptive *Ad
 		}
 		types = append(types, protoType(id, "string", "app_name", values))
 	}
+	if m.LoopbackCleartext {
+		file := pbString(nil, 1, networkSecurityFile)
+		file = pbVarint(file, 2, 3) // PROTO_XML
+		values := [][2][]byte{{nil, pbBytes(nil, 5, file)}}
+		types = append(types, protoType(uint64(networkSecurityID(m)>>16&0xff), "xml", networkSecurityName, values))
+	}
 	p := pbBytes(nil, 1, pbVarint(nil, 1, appPackageID))
-	p = pbString(p, 2, pkg)
+	p = pbString(p, 2, m.Package)
 	for _, t := range types {
 		p = pbBytes(p, 3, t)
 	}
