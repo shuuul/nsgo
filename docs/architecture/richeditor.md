@@ -33,6 +33,8 @@ A session belongs to the engine goroutine, as the reactive graph does, so it tak
 
 Pasted cells follow prosemirror-tables: over a cell selection they repeat or are cut to fill it, other content filling each cell, and in a cell they land with their top left there, the table growing and the cells crossing the area's edges split (`PastedCells`, `ClipCells`, `InsertCells`). The gap cursor stands between closed blocks whose parent takes a textblock there, as before a table that starts the document; arrows and presses reach it, and typing, or an input method starting to compose (`Session.OpenGap`), fills it with that textblock.
 
+Markdown uses an `inlineImage` leaf when the schema defines it and an image shares a text block with other inline content. The node takes `src`, `alt`, and `title` like the block `image`, retains its marks, and writes back to Markdown as an image. `ui/richeditor` provides compact rendering for this optional node.
+
 ## The view
 
 - Blocks are views keyed by id (`block`): a block keeps its id while it is the same node, else the node at its index with its type, so a change rebuilds only what changed. A table's cells are its children, since rows have no view, placed in a grid at their map's slots.

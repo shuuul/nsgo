@@ -268,21 +268,59 @@ func (m *mdReader) inline(parent ast.Node, marks []*Mark) []*Node {
 			label := string(n.Label(m.src))
 			out = append(out, m.s.Text(label, m.mark("link", Attrs{"href": string(n.URL(m.src))}, marks)...))
 		case *ast.Image:
-			t := m.s.Nodes["image"]
-			if t == nil {
-				continue
-			}
+			attrs := Attrs{"src": string(n.Destination), "title": nilIfEmpty(string(n.Title))}
 			var alt bytes.Buffer
 			for k := c.FirstChild(); k != nil; k = k.NextSibling() {
 				if tx, ok := k.(*ast.Text); ok {
 					alt.Write(tx.Value(m.src))
 				}
 			}
-			out = append(out, t.Create(Attrs{"src": string(n.Destination), "alt": alt.String(), "title": nilIfEmpty(string(n.Title))}, nil, nil))
+			attrs["alt"] = alt.String()
+			// An image inline in a schema that names one stays in its
+			// paragraph when text stands around it; else the block's.
+			t := m.s.Nodes["image"]
+			if in := m.s.Nodes["inlineImage"]; in != nil && (t == nil || m.inlineAround(c)) {
+				t = in
+			}
+			if t != nil {
+				var with []*Mark
+				if t.IsInline() {
+					with = marks
+				}
+				out = append(out, t.Create(attrs, nil, with))
+			}
 		case *east.TaskCheckBox:
 		}
 	}
 	return out
+}
+
+// inlineAround says non-blank inline content stands beside n anywhere in
+// the inline tree that holds it, as a link's image counts what stands
+// beside the link; whitespace text and line breaks do not count.
+func (m *mdReader) inlineAround(n ast.Node) bool {
+	for c := n; ; {
+		for s := c.PreviousSibling(); s != nil; s = s.PreviousSibling() {
+			if !m.blankInline(s) {
+				return true
+			}
+		}
+		for s := c.NextSibling(); s != nil; s = s.NextSibling() {
+			if !m.blankInline(s) {
+				return true
+			}
+		}
+		p := c.Parent()
+		if p == nil || p.Type() != ast.TypeInline {
+			return false
+		}
+		c = p
+	}
+}
+
+func (m *mdReader) blankInline(n ast.Node) bool {
+	t, ok := n.(*ast.Text)
+	return ok && len(bytes.TrimSpace(t.Value(m.src))) == 0
 }
 
 func nilIfEmpty(s string) any {
@@ -299,6 +337,33 @@ func WriteMarkdown(doc *Node) string {
 	var b strings.Builder
 	writeBlocks(&b, doc.Content, "")
 	return strings.TrimRight(b.String(), "\n") + "\n"
+}
+
+// imageMarkdown writes the raw title using double-quote delimiters.
+func imageMarkdown(n *Node) string {
+	alt, src, title := n.AttrStr("alt"), n.AttrStr("src"), n.AttrStr("title")
+	if title == "" {
+		return "![" + alt + "](" + src + ")"
+	}
+	var out strings.Builder
+	out.Grow(len(alt) + len(src) + len(title) + len(`![]( "")`))
+	out.WriteString("![")
+	out.WriteString(alt)
+	out.WriteString("](")
+	out.WriteString(src)
+	out.WriteString(` "`)
+	start, escaped := 0, false
+	for i := range len(title) {
+		if title[i] == '"' && !escaped {
+			out.WriteString(title[start:i])
+			out.WriteByte('\\')
+			start = i
+		}
+		escaped = title[i] == '\\' && !escaped
+	}
+	out.WriteString(title[start:])
+	out.WriteString(`")`)
+	return out.String()
 }
 
 func writeBlocks(b *strings.Builder, f *Fragment, indent string) {
@@ -329,7 +394,7 @@ func writeBlock(b *strings.Builder, n *Node, indent string) {
 	case "horizontalRule":
 		b.WriteString(indent + "---\n")
 	case "image":
-		b.WriteString(indent + "![" + n.AttrStr("alt") + "](" + n.AttrStr("src") + ")\n")
+		b.WriteString(indent + imageMarkdown(n) + "\n")
 	case "bulletList", "orderedList", "taskList":
 		for i, item := range n.Content.Content {
 			prefix := "- "
@@ -454,6 +519,8 @@ func inlineMarkdown(n *Node) string {
 			b.WriteString("  \n")
 		case c.Type.Spec.LeafText != nil:
 			b.WriteString(c.Type.Spec.LeafText(c))
+		case c.Type.Name == "inlineImage":
+			b.WriteString(imageMarkdown(c))
 		}
 	}
 	closeTo(0)

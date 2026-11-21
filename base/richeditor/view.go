@@ -537,6 +537,8 @@ func (v *rv) buildText(b *block) {
 				text = c.Type.Spec.RenderText(c)
 			case c.Type.Spec.LeafText != nil:
 				text = c.Type.Spec.LeafText(c)
+			case c.Type.Name == "inlineImage":
+				text = imageMarkdown(c)
 			}
 			add(piece{text: text, marks: c.Marks, leaf: c, classes: classes(at, at+size), attach: v.p.NodeViews[c.Type.Name] != nil}, at, size, true)
 		}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/nsgo-dev/nsgo/base/richeditor"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/internal/driver"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 	uirich "github.com/nsgo-dev/nsgo/ui/richeditor"
 )
@@ -37,5 +38,50 @@ func TestViewTakesTyping(t *testing.T) {
 	app.Type("role:textbox", "!")
 	if !strings.Contains(s.Text(), "!") {
 		t.Fatalf("typing left %q", s.Text())
+	}
+}
+
+// TestViewShowsAnInlineImage lays a sentence holding an image out in ui's
+// look: the paragraph keeps the picture in the line, a press on it selects
+// the node, and the Markdown reads as it came.
+func TestViewShowsAnInlineImage(t *testing.T) {
+	exts := append(richeditor.StarterKit(richeditor.StarterOptions{}), richeditor.Extension{Name: "inlineImage",
+		Nodes: []richeditor.NodeSpec{{Name: "inlineImage", Inline: true, Group: "inline", Atom: true,
+			Attrs: []richeditor.AttrSpec{{Name: "src"}, {Name: "alt", HasDefault: true}, {Name: "title", HasDefault: true}}}}})
+	s, err := richeditor.NewSession(richeditor.SessionConfig{Extensions: exts, Markdown: "see ![pic](a.png) here\n\n![solo](b.png)\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		cx.SetTheme(core.DefaultTheme())
+		return uirich.View{Editor: s, Label: "Doc", Style: core.Style{Width: core.Pt(360), Height: core.Pt(400)}}
+	})
+	// Two pictures, both views: the inline one's in the first paragraph's
+	// line, the standalone one the second block.
+	images := app.QueryMounted("role:image")
+	if len(images) != 2 {
+		t.Fatalf("%d image views", len(images))
+	}
+	text := app.Find("text:see ￼ here")
+	pageY := func(v *nsgotest.View) driver.Points {
+		y := v.Frame.Origin.Y
+		for p := v.Parent; p != nil; p = p.Parent {
+			y += p.Frame.Origin.Y - p.Offset.Y
+		}
+		return y
+	}
+	if pageY(images[0]) < pageY(text) || pageY(images[0]) > pageY(text)+text.Frame.Size.Height {
+		t.Fatalf("the inline image is not in the text's line: %v vs %v", images[0].Frame, text.Frame)
+	}
+	if pageY(images[1]) <= pageY(text) {
+		t.Fatalf("the block image did not follow the line: %v", images[1].Frame)
+	}
+	app.PressAt("role:image", driver.Point{X: images[0].Frame.Size.Width / 2, Y: images[0].Frame.Size.Height / 2})
+	sel, ok := s.State().Selection.(*richeditor.NodeSelection)
+	if !ok || sel.Node.Type.Name != "inlineImage" {
+		t.Fatalf("selection %+v", s.State().Selection)
+	}
+	if got := s.Markdown(); !strings.Contains(got, "![pic](a.png)") || !strings.Contains(got, "![solo](b.png)") {
+		t.Fatalf("markdown %q", got)
 	}
 }

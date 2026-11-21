@@ -15,7 +15,7 @@ import (
 // View is richeditor.View in ui's look: reading text on the theme's
 // colors, the accent for the caret and links, tables on hairlines with a
 // recessed header, and images shown. The app's Styles or StylesFunc merge over
-// ui's, part by part, and its NodeViews over the image's.
+// ui's, part by part, and its NodeViews over the images'.
 type View richeditor.View
 
 // Render implements core.Node.
@@ -28,6 +28,9 @@ func (v View) Render(cx *core.Scope) core.Node {
 	if out.NodeViews["image"] == nil {
 		out.NodeViews["image"] = image
 	}
+	if out.NodeViews["inlineImage"] == nil {
+		out.NodeViews["inlineImage"] = image
+	}
 	out.StylesFunc = ui.Themed(cx, func() richeditor.Styles {
 		app := v.Styles
 		if v.StylesFunc != nil {
@@ -38,17 +41,31 @@ func (v View) Render(cx *core.Scope) core.Node {
 	return out
 }
 
+// image is a block image's view, or an inline one's when its node is inline:
+// then the picture sits in the line, a line's height and its own width, else
+// square while it loads. A press selects the node, the accent its outline.
 func image(cx *core.Scope, p richeditor.NodeProps) core.Node {
 	colors := ui.ColorsOf(cx)
+	natural := core.NewSignal(cx, core.Size{})
 	return core.View{StyleFunc: func() core.Style {
 		st := core.Style{AlignSelf: core.AlignStart, CornerRadius: ui.RadiusControl, Overflow: core.Hidden}
 		if p.Selected() {
 			st.OutlineWidth, st.OutlineColor = 2, colors.Accent()
 		}
 		return st
-	}, Children: []core.Node{core.Image{ResizeMode: core.Contain,
+	}, Children: []core.Node{core.Image{ResizeMode: core.Contain, Label: p.Node().AttrStr("alt"),
 		SourceFunc: func() core.ImageSource { return core.Src(p.Node().AttrStr("src")) },
-		Style:      core.Style{MaxWidth: core.Pct(100), Height: core.Pt(200), Width: core.Pct(100)}}}}
+		OnLoad:     natural.Set,
+		StyleFunc: func() core.Style {
+			if !p.Node().IsInline() {
+				return core.Style{MaxWidth: core.Pct(100), Height: core.Pt(200), Width: core.Pct(100)}
+			}
+			s := core.Style{Height: core.Pt(20), Width: core.Pt(20)}
+			if n := natural.Get(); n.Width > 0 && n.Height > 0 {
+				s.Width, s.AspectRatio = core.Length{}, float32(n.Width/n.Height)
+			}
+			return s
+		}}}}
 }
 
 func styles(cx *core.Scope) richeditor.Styles {
