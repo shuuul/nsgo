@@ -333,6 +333,8 @@ func (c *canvasPlayer) play(op *driver.DrawOp) {
 		c.text(op)
 	case driver.DrawImage:
 		c.image(op)
+	case driver.DrawAtlas:
+		c.atlas(op)
 	case driver.DrawClear:
 		c.clear(op)
 	}
@@ -989,15 +991,22 @@ func (c *canvasPlayer) image(op *driver.DrawOp) {
 	if w == 0 && h == 0 {
 		w, h = float32(nat.Width), float32(nat.Height)
 	}
-	k := float32(s.pic.width) / max(float32(nat.Width), 1e-3)
 	src := rectF{0, 0, float32(s.pic.width), float32(s.pic.height)}
 	if op.X2 != 0 || op.Y2 != 0 {
-		src = rectF{op.X1 * k, op.Y1 * k, (op.X1 + op.X2) * k, (op.Y1 + op.Y2) * k}
+		k := float32(s.pic.width) / max(float32(nat.Width), 1e-3)
+		src = canvasImageCrop(op.X1, op.Y1, op.X2, op.Y2, k)
 	}
 	dst := rectF{op.X, op.Y, op.X + w, op.Y + h}
-	alpha := c.st.alpha
+	c.paintBitmap(bmp, src, dst, c.st.alpha, c.st.ctm)
+}
+
+func canvasImageCrop(x, y, w, h, scale float32) rectF {
+	return rectF{x * scale, y * scale, (x + w) * scale, (y + h) * scale}
+}
+
+func (c *canvasPlayer) paintBitmap(bmp *comObject, src, dst rectF, alpha float32, transform matrix) {
 	c.paint(func(dc *comObject, base matrix) {
-		c.setTransform(dc, c.st.ctm.then(base))
+		c.setTransform(dc, transform.then(base))
 		dc.callF(rtDrawBitmap, 0b100, bmp.ptr(), uintptr(unsafe.Pointer(&dst)), f32(alpha), d2dInterpolationLinear,
 			uintptr(unsafe.Pointer(&src)))
 	})
